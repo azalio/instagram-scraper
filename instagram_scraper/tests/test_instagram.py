@@ -3,6 +3,7 @@ import os
 import shutil
 import tempfile
 import requests_mock
+import glob
 from instagram_scraper import InstagramScraper
 from instagram_scraper.constants import *
 
@@ -10,19 +11,32 @@ class InstagramTests(unittest.TestCase):
 
     def setUp(self):
         fixtures_path = os.path.join(os.path.dirname(__file__), 'fixtures')
-        self.response_user_metadata = open(os.path.join(fixtures_path,
-                                                        'response_user_metadata.json')).read()
-        self.response_first_page = open(os.path.join(fixtures_path,
-                                                     'response_first_page.json')).read()
-        self.response_second_page = open(os.path.join(fixtures_path,
-                                                      'response_second_page.json')).read()
 
-        self.test_dir = tempfile.mkdtemp()
+        fixture_files = glob.glob(os.path.join(fixtures_path, '*'))
+
+        for file_path in fixture_files:
+            basename = os.path.splitext(os.path.basename(file_path))[0]
+            self.__dict__[basename] = open(file_path).read()
 
         # This is a max id of the last item in response_first_page.json.
         self.max_id = "1369793132326237681_50955533"
 
-        self.scraper = InstagramScraper("test", dst=self.test_dir, quiet=True)
+        self.test_dir = tempfile.mkdtemp()
+
+        args = {
+            'usernames': ['test'],
+            'destination': self.test_dir,
+            'login_user': None,
+            'login_pass': None,
+            'quiet': True,
+            'maximum': 0,
+            'retain_username': False,
+            'media_metadata': False,
+            'media_types': ['image', 'video', 'story'],
+            'latest': False
+        }
+
+        self.scraper = InstagramScraper(**args)
 
     def tearDown(self):
         shutil.rmtree(self.test_dir)
@@ -44,5 +58,13 @@ class InstagramTests(unittest.TestCase):
             self.assertEqual(open(os.path.join(self.test_dir, 'photo3.jpg')).read(),
                              "image3")
 
+    def test_scrape_hashtag(self):
+        with requests_mock.Mocker() as m:
+            m.get(QUERY_HASHTAG.format(self.scraper.usernames[0], ''), text=self.response_query_hashtag_first_page, status_code=200)
+            m.get(QUERY_HASHTAG.format(self.scraper.usernames[0], 'J0'), text=self.response_query_hashtag_second_page, status_code=200)
 
+            m.get('https://fake-url.com/photo4.jpg', text="image4")
 
+            self.scraper.scrape_hashtag()
+
+            self.assertEqual(open(os.path.join(self.test_dir, 'photo4.jpg')).read(), "image4")
